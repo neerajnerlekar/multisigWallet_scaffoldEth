@@ -13,75 +13,151 @@ import "hardhat/console.sol";
  * @author BuidlGuidl
  */
 contract YourContract {
-	// State Variables
-	address public immutable owner;
-	string public greeting = "Building Unstoppable Apps!!!";
-	bool public premium = false;
-	uint256 public totalCounter = 0;
-	mapping(address => uint) public userGreetingCounter;
+	event Deposit(address indexed sender, uint256 amount);
+	event Submit(uint256 indexed txId);
+	event Approve(address indexed owner, uint256 indexed txId);
+	event Revoke(address indexed owner, uint256 indexed txId);
+	event Execute(uint256 indexed txId);
 
-	// Events: a way to emit log statements from smart contract that can be listened to by external parties
-	event GreetingChange(
-		address indexed greetingSetter,
-		string newGreeting,
-		bool premium,
-		uint256 value
-	);
-
-	// Constructor: Called once on contract deployment
-	// Check packages/hardhat/deploy/00_deploy_your_contract.ts
-	constructor(address _owner) {
-		owner = _owner;
+	// Transaction structure
+	struct Transaction {
+		address to;
+		uint256 value;
+		bytes data;
+		bool executed;
 	}
 
-	// Modifier: used to define a set of rules that must be met before or after a function is executed
-	// Check the withdraw() function
-	modifier isOwner() {
-		// msg.sender: predefined variable that represents address of the account that called the current function
-		require(msg.sender == owner, "Not the Owner");
+	address[] public owners;
+	mapping(address => bool) public isOwner;
+	uint256 public numConfirmationsRequired;
+
+	Transaction[] public transactions;
+
+	// Mapping to keep track of the confirmations for each transaction
+	mapping(uint256 => mapping(address => bool)) public confirmations;
+
+	// modifiers
+	modifier onlyOwner() {
+		require(isOwner[msg.sender], "Not owner");
 		_;
 	}
 
-	/**
-	 * Function that allows anyone to change the state variable "greeting" of the contract and increase the counters
-	 *
-	 * @param _newGreeting (string memory) - new greeting to save on the contract
-	 */
-	function setGreeting(string memory _newGreeting) public payable {
-		// Print data to the hardhat chain console. Remove when deploying to a live network.
-		console.log(
-			"Setting new greeting '%s' from %s",
-			_newGreeting,
-			msg.sender
+	modifier txExists(uint256 _txId) {
+		require(_txId < transactions.length, "Transaction does not exist");
+		_;
+	}
+
+	modifier notExecuted(uint256 _txId) {
+		require(!transactions[_txId].executed, "Transaction already executed");
+		_;
+	}
+
+	modifier notConfirmed(uint256 _txId) {
+		require(
+			!confirmations[_txId][msg.sender],
+			"Transaction already confirmed"
+		);
+		_;
+	}
+
+	// Constructor
+	constructor(address[] memory _owners, uint256 _numConfirmationsRequired) {
+		require(_owners.length > 0, "Owners required");
+		require(
+			_numConfirmationsRequired > 0 &&
+				_numConfirmationsRequired <= _owners.length,
+			"Invalid number of confirmations"
 		);
 
-		// Change state variables
-		greeting = _newGreeting;
-		totalCounter += 1;
-		userGreetingCounter[msg.sender] += 1;
+		for (uint256 i = 0; i < _owners.length; i++) {
+			address owner = _owners[i];
 
-		// msg.value: built-in global variable that represents the amount of ether sent with the transaction
-		if (msg.value > 0) {
-			premium = true;
-		} else {
-			premium = false;
+			require(owner != address(0), "Invalid owner");
+			require(!isOwner[owner], "Owner not unique");
+
+			isOwner[owner] = true;
+			owners.push(owner);
 		}
 
-		// emit: keyword used to trigger an event
-		emit GreetingChange(msg.sender, _newGreeting, msg.value > 0, 0);
+		numConfirmationsRequired = _numConfirmationsRequired;
 	}
 
-	/**
-	 * Function that allows the owner to withdraw all the Ether in the contract
-	 * The function can only be called by the owner of the contract as defined by the isOwner modifier
-	 */
-	function withdraw() public isOwner {
-		(bool success, ) = owner.call{ value: address(this).balance }("");
-		require(success, "Failed to send Ether");
+	receive() external payable {
+		emit Deposit(msg.sender, msg.value);
 	}
 
-	/**
-	 * Function that allows the contract to receive ETH
-	 */
-	receive() external payable {}
+	// Function to submit a transaction
+	function submit(
+		address _to,
+		uint256 _value,
+		bytes memory _data
+	) public onlyOwner {
+		transactions.push(
+			Transaction({
+				to: _to,
+				value: _value,
+				data: _data,
+				executed: false
+			})
+		);
+
+		emit Submit(transactions.length - 1);
+	}
+
+	// Function to approve a transaction
+	function approve(
+		uint256 _txId
+	) public onlyOwner txExists(_txId) notExecuted(_txId) notConfirmed(_txId) {
+		confirmations[_txId][msg.sender] = true;
+		emit Approve(msg.sender, _txId);
+	}
+
+	// Function to get the number of confirmations for a transaction
+	function _getConfirmationCount(
+		uint256 _txId
+	) private view returns (uint256 count) {
+		for (uint256 i = 0; i < owners.length; i++) {
+			if (confirmations[_txId][owners[i]]) {
+				count += 1;
+			}
+		}
+	}
+
+	// Function to execute a transaction
+	function execute(
+		uint256 _txId
+	) public onlyOwner txExists(_txId) notExecuted(_txId) {
+		require(
+			_getConfirmationCount(_txId) >= numConfirmationsRequired,
+			"not enough confirmations"
+		);
+
+		Transaction storage transaction = transactions[_txId];
+		transaction.executed = true;
+
+		(bool success, ) = transaction.to.call{ value: transaction.value }(
+			transaction.data
+		);
+		require(success, "Transaction failed");
+
+		emit Execute(_txId);
+	}
+
+	// Function to revoke a confirmation
+	function revoke(
+		uint256 _txId
+	) public onlyOwner txExists(_txId) notExecuted(_txId) {
+		confirmations[_txId][msg.sender] = false;
+		emit Revoke(msg.sender, _txId);
+	}
+
+	// Getter Functions
+
+	function getOwners() public view returns (address[] memory) {
+		return owners;
+	}
+
+	function getTransactions() public view returns (Transaction[] memory) {
+		return transactions;
+	}
 }

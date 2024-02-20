@@ -1,6 +1,5 @@
 import { HardhatRuntimeEnvironment } from "hardhat/types";
 import { DeployFunction } from "hardhat-deploy/types";
-import { Contract } from "ethers";
 
 /**
  * Deploys a contract named "YourContract" using the deployer account and
@@ -19,22 +18,23 @@ const deployYourContract: DeployFunction = async function (hre: HardhatRuntimeEn
     with a random private key in the .env file (then used on hardhat.config.ts)
     You can run the `yarn account` command to check your balance in every network.
   */
-  const { deployer } = await hre.getNamedAccounts();
+  const { deployer, acc1, acc2 } = await hre.getNamedAccounts();
   const { deploy } = hre.deployments;
+  console.log(deployer, acc1, acc2);
 
   await deploy("YourContract", {
     from: deployer,
     // Contract constructor arguments
-    args: [deployer],
+    args: [[deployer, acc1, "0xC8Bf7C183f47a6C2120F6c10bac65d3F4072F1ac"], 2],
     log: true,
     // autoMine: can be passed to the deploy function to make the deployment process faster on local networks by
     // automatically mining the contract deployment transaction. There is no effect on live networks.
     autoMine: true,
   });
 
-  // Get the deployed contract to interact with it after deploying.
-  const yourContract = await hre.ethers.getContract<Contract>("YourContract", deployer);
-  console.log("👋 Initial greeting:", await yourContract.greeting());
+  // // Get the deployed contract to interact with it after deploying.
+  // const yourContract = await hre.ethers.getContract<Contract>("YourContract", deployer);
+  // console.log("👋 Initial greeting:", await yourContract.greeting());
 };
 
 export default deployYourContract;

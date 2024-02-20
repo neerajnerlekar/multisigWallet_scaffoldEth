@@ -36,6 +36,14 @@ const config: HardhatUserConfig = {
       // By default, it will take the first Hardhat account as the deployer
       default: 0,
     },
+    acc1: {
+      // By default, it will take the second Hardhat account as the acc1
+      default: 1,
+    },
+    acc2: {
+      // By default, it will take the third Hardhat account as the acc2
+      default: 2,
+    },
   },
   networks: {
     // View the networks that are pre-configured.
